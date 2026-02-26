@@ -1,1 +1,186 @@
+define TIMING_BASE        = 38;
+define HOLD_DURATION      = 142;
+define DELAY_OFFSET       = 18;
+define POWER_THRESHOLD    = 82;
+define RECOIL_VERTICAL    = 62;
+define RECOIL_HORIZONTAL  = 12;
+define ADAPT_STEP         = 4;
+define MAX_ADAPT          = 22;
+define BOOST_POWER        = 94;
+define CANCEL_FRAME       = 135;
+define TRIGGER_WINDOW     = 58;
+define RESET_DELAY        = 45;
+define CURVE_FACTOR       = 1.8;
+define RUMBLE_INTENSITY   = 55;
+define STICK_CLAMP        = 100;
+define MIN_VALUE          = -100;
+define TURBO_HOLD         = 65;
+define FLICK_SPEED        = 48;
+define CHAIN_LENGTH       = 7;
+define LOOP_COUNT         = 3;
 
+int offset_current       = TIMING_BASE;
+int counter_miss         = 0;
+int mode_active          = FALSE;
+int boost_applied        = FALSE;
+int reset_triggered      = FALSE;
+int curve_position       = 0;
+int rumble_phase         = 0;
+int stick_direction      = 0;
+int temp_value           = 0;
+int loop_index           = 0;
+
+main {
+    if(get_val(XB1_RT) > 20 || get_val(PS4_R2) > 20) {
+        combo_run(ReleaseTiming);
+        apply_recoil_adjust();
+    }
+
+    if(event_release(XB1_RT) || event_release(PS4_R2)) {
+        counter_miss = counter_miss + 1;
+        if(counter_miss > 5) {
+            offset_current = offset_current + ADAPT_STEP;
+            if(offset_current > TIMING_BASE + MAX_ADAPT) {
+                offset_current = TIMING_BASE;
+            }
+            counter_miss = 0;
+        }
+    }
+
+    if(get_val(XB1_LT) > 30) {
+        if(!mode_active) {
+            combo_run(BoostSequence);
+            mode_active = TRUE;
+        }
+    }
+
+    if(event_release(XB1_LT)) {
+        mode_active = FALSE;
+        boost_applied = FALSE;
+    }
+
+    if(get_val(XB1_RB) > POWER_THRESHOLD) {
+        combo_run(TriggerAction);
+    }
+
+    if(get_val(XB1_RS) > 70 || get_val(XB1_RS) < -70) {
+        stick_direction = get_val(XB1_RS);
+        combo_run(FlickChain);
+    }
+
+    if(get_val(XB1_A)) {
+        combo_run(TurboLoop);
+    }
+
+    if(reset_triggered) {
+        reset_triggered = FALSE;
+        combo_run(FullReset);
+    }
+
+    apply_curve_adjust();
+    simulate_rumble();
+}
+
+combo ReleaseTiming {
+    wait(offset_current);
+    set_val(XB1_RT, 100);
+    wait(HOLD_DURATION);
+    set_val(XB1_RT, 80);
+    wait(22);
+    set_val(XB1_RT, 60);
+    wait(18);
+    set_val(XB1_RT, 40);
+    wait(15);
+    set_val(XB1_RT, 20);
+    wait(12);
+    set_val(XB1_RT, 0);
+    wait(30);
+}
+
+combo BoostSequence {
+    set_val(XB1_LT, BOOST_POWER);
+    wait(180);
+    set_val(XB1_LT, 90);
+    wait(120);
+    set_val(XB1_LT, 70);
+    wait(80);
+    set_val(XB1_LT, 50);
+    wait(60);
+    set_val(XB1_LT, 30);
+    wait(40);
+    set_val(XB1_LT, 0);
+}
+
+combo TriggerAction {
+    set_val(XB1_RB, 100);
+    wait(TRIGGER_WINDOW);
+    set_val(XB1_RB, 70);
+    wait(35);
+    set_val(XB1_RB, 100);
+    wait(28);
+    set_val(XB1_RB, 0);
+}
+
+combo FlickChain {
+    set_val(XB1_RS, stick_direction);
+    wait(FLICK_SPEED);
+    set_val(XB1_RS, -stick_direction / 2);
+    wait(FLICK_SPEED * 1.5);
+    set_val(XB1_RS, stick_direction * 0.8);
+    wait(FLICK_SPEED);
+    set_val(XB1_RS, 0);
+    wait(50);
+    loop_index = 0;
+    while(loop_index < LOOP_COUNT) {
+        set_val(XB1_RS, stick_direction / 2);
+        wait(30);
+        set_val(XB1_RS, 0);
+        wait(20);
+        loop_index = loop_index + 1;
+    }
+}
+
+combo TurboLoop {
+    set_val(XB1_A, 100);
+    wait(TURBO_HOLD);
+    set_val(XB1_A, 0);
+    wait(15);
+}
+
+combo FullReset {
+    set_val(XB1_LS, 0);
+    set_val(XB1_RS, 0);
+    set_val(XB1_RT, 0);
+    set_val(XB1_LT, 0);
+    set_val(XB1_RB, 0);
+    set_val(XB1_A, 0);
+    wait(200);
+}
+
+function apply_recoil_adjust() {
+    temp_value = get_val(XB1_RY) + RECOIL_VERTICAL;
+    if(temp_value > STICK_CLAMP) temp_value = STICK_CLAMP;
+    if(temp_value < MIN_VALUE) temp_value = MIN_VALUE;
+    set_val(XB1_RY, temp_value);
+
+    temp_value = get_val(XB1_RX) + RECOIL_HORIZONTAL;
+    if(temp_value > STICK_CLAMP) temp_value = STICK_CLAMP;
+    if(temp_value < MIN_VALUE) temp_value = MIN_VALUE;
+    set_val(XB1_RX, temp_value);
+}
+
+function apply_curve_adjust() {
+    curve_position = curve_position + CURVE_FACTOR;
+    if(curve_position > 360) curve_position = 0;
+}
+
+function simulate_rumble() {
+    if(rumble_phase == 0) {
+        rumble(RUMBLE_A, RUMBLE_INTENSITY);
+        rumble_phase = 1;
+    } else if(rumble_phase == 1) {
+        rumble(RUMBLE_B, RUMBLE_INTENSITY / 2);
+        rumble_phase = 0;
+    }
+    wait(120);
+}
